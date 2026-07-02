@@ -55,8 +55,9 @@ rm -rf ~/.local/share/ubuntu-notes
 ```
 ubuntu_notes.py       Main PyQt6 application (this is what run.sh launches)
 run.sh                Sets up the venv and starts the app
+install.sh             Installs the app to ~/.local/share and registers the launcher
 assets/logo.png        App icon
-ubuntu-notes.desktop   Desktop launcher entry (see "Installing as a desktop app")
+ubuntu-notes.desktop   Desktop launcher entry template (see "Installing as a desktop app")
 ```
 
 `app.py`, `templates/`, and `static/` are an earlier Flask-based web
