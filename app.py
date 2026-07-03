@@ -1,13 +1,14 @@
-"""Ubuntu Notes REST API.
+"""Ubuntu Notes — web UI + REST API.
 
-A local JSON API over the same ~/Notes/notes.db the PyQt6 desktop app
-(ubuntu_notes.py) reads and writes, via the shared notes_db.DB layer.
-Notes created or edited here show up in the desktop app and vice versa.
+Serves the browser frontend (templates/index.html, static/) and a JSON API,
+both over the same ~/Notes/notes.db the PyQt6 desktop app (ubuntu_notes.py)
+reads and writes, via the shared notes_db.DB layer. Notes created or edited
+here show up in the desktop app and vice versa.
 
 Run: ./run_api.sh   (binds to 127.0.0.1:5001, no auth — localhost only)
 """
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, render_template
 
 from notes_db import DB
 
@@ -19,6 +20,11 @@ def note_json(row):
     d = dict(row)
     d['date_display'] = DB.fmt_date(d['updated'])
     return d
+
+
+@app.route('/')
+def index():
+    return render_template('index.html')
 
 
 @app.route('/api/notes')

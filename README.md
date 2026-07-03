@@ -58,13 +58,13 @@ rm -rf ~/.local/share/ubuntu-notes
 
 ## Cloud backup
 
-Ubuntu Notes can back up `notes.db` to **Proton Drive**, **Google Drive**,
-and/or **Microsoft OneDrive**. Click **☁ Manage Cloud Accounts…** at the
-bottom of the sidebar to sign in:
+Ubuntu Notes can back up `notes.db` to **Proton Drive** and/or **Microsoft
+OneDrive**. Click **☁ Manage Cloud Accounts…** at the bottom of the sidebar
+to sign in:
 
-- **Google Drive / OneDrive** — click Connect, your browser opens straight
-  to Google's/Microsoft's own login page. Nothing passes through the app;
-  it just picks up the resulting token once you approve access.
+- **OneDrive** — click Connect, your browser opens straight to Microsoft's
+  own login page. Nothing passes through the app; it just picks up the
+  resulting token once you approve access.
 - **Proton Drive** — click Connect and enter your email, password, and (if
   enabled) 2FA code in the form that appears.
 - Click **Disconnect** any time to stop backing up to that drive and
@@ -88,7 +88,7 @@ in-app dialog — either way ends up creating the same kind of rclone remote.
 ```
 ubuntu_notes.py          Main PyQt6 application (this is what run.sh launches)
 notes_db.py              Shared SQLite layer (~/Notes/notes.db) used by the app and the API
-cloud_sync.py            Background rclone backup to Proton Drive/Google Drive/OneDrive
+cloud_sync.py            Background rclone backup to Proton Drive/OneDrive
 cloud_login.py           In-app sign-in — creates the rclone remotes cloud_sync.py uses
 cloud_accounts_dialog.py "Manage Cloud Accounts" dialog (PyQt6)
 run.sh                   Sets up the venv and starts the app

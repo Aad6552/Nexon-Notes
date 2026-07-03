@@ -272,8 +272,8 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.timeout.connect(self._do_save)
 
-        # Cloud backup: pushes notes.db to Proton Drive / Google Drive /
-        # OneDrive via rclone, whichever the user is signed in to.
+        # Cloud backup: pushes notes.db to Proton Drive / OneDrive via
+        # rclone, whichever the user is signed in to.
         self.cloud = CloudSync(DB_PATH)
         self._sync_signal = SyncSignal()
         self._sync_signal.finished.connect(self._on_cloud_sync_done)

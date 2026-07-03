@@ -1,13 +1,13 @@
-"""In-app sign-in for Proton Drive / Google Drive / Microsoft OneDrive.
+"""In-app sign-in for Proton Drive / Microsoft OneDrive.
 
 Wires credentials into rclone remotes so cloud_sync.py can back up to them.
-For Google/OneDrive this runs `rclone authorize`, which opens the user's
-browser straight to the provider's own login page — no password or token
-ever passes through this app. For Proton Drive (no browser OAuth in
-rclone), it takes an email/password/2FA form and hands it to
-`rclone config create` directly.
+For OneDrive this runs `rclone authorize`, which opens the user's browser
+straight to Microsoft's own login page — no password or token ever passes
+through this app. For Proton Drive (no browser OAuth in rclone), it takes
+an email/password/2FA form and hands it to `rclone config create` directly.
 """
 
+import json
 import re
 import subprocess
 import threading
@@ -15,10 +15,9 @@ import threading
 from cloud_sync import REMOTE_TYPES, REMOTE_SUBDIR
 
 PROVIDER_TYPES = [('protondrive', REMOTE_TYPES['protondrive']),
-                   ('drive', REMOTE_TYPES['drive']),
                    ('onedrive', REMOTE_TYPES['onedrive'])]
 
-DEFAULT_REMOTE_NAMES = {'protondrive': 'proton', 'drive': 'gdrive', 'onedrive': 'onedrive'}
+DEFAULT_REMOTE_NAMES = {'protondrive': 'proton', 'onedrive': 'onedrive'}
 OAUTH_TIMEOUT = 300  # seconds allowed to complete the browser login
 
 
@@ -61,6 +60,58 @@ def disconnect(remote_name):
                     capture_output=True, text=True, timeout=10)
 
 
+def _pick_drive_example(option):
+    """For the OneDrive "which drive?" question: prefer the one literally
+    labeled the user's main personal OneDrive, falling back to whatever
+    rclone suggests as the default."""
+    for ex in (option.get('Examples') or []):
+        if (ex.get('Help') or '').strip().lower() == 'onedrive (personal)':
+            return ex['Value']
+    return option.get('Default')
+
+
+def _answer_for(option):
+    name = option.get('Name', '')
+    if name == 'config_refresh_token':
+        return 'false'  # we just got a token — keep it, don't re-auth
+    if name == 'config_driveid':
+        return _pick_drive_example(option)
+    # config_type ("onedrive" vs sharepoint/etc), config_drive_ok, and
+    # anything else: rclone's own default is the sane choice.
+    return str(option.get('Default', ''))
+
+
+def _finish_config_questions(remote_name, response_json):
+    """Some backends (OneDrive is the main one) ask follow-up questions
+    after the OAuth token is captured — connection type, which drive to
+    use, confirmation — via rclone's --non-interactive/--continue
+    protocol. Auto-answer with sane defaults so sign-in actually finishes
+    instead of leaving a remote with a valid token but no drive_id,
+    which fails on every real use ("unable to get drive_id and
+    drive_type"). Returns (ok, error_message)."""
+    data = response_json
+    for _ in range(10):  # hard cap: a protocol change shouldn't spin forever
+        state = data.get('State')
+        if not state:
+            return True, None
+        if data.get('Error'):
+            return False, data['Error']
+        option = data.get('Option') or {}
+        answer = _answer_for(option)
+        result = subprocess.run(
+            ['rclone', 'config', 'update', remote_name, '--non-interactive',
+             '--continue', '--state', state, '--result', str(answer)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            return False, result.stderr.strip() or 'Configuration step failed'
+        try:
+            data = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return False, 'Unexpected response from rclone'
+    return False, 'Too many configuration steps'
+
+
 def _make_notes_folder(remote_name):
     subprocess.run(['rclone', 'mkdir', f'{remote_name}:{REMOTE_SUBDIR}'],
                     capture_output=True, text=True, timeout=45)
@@ -94,11 +145,17 @@ def login_oauth(rtype, remote_name, on_status=None, on_url=None, on_done=None):
         nonlocal url_shown
         for line in proc.stdout:
             lines.append(line)
-            m = re.search(r'https?://\S+', line)
+            # Only match rclone's actual "go to the following link:" line —
+            # an earlier informational line ("Make sure your Redirect URL is
+            # set to \"http://...\" in your custom config.") also contains a
+            # URL, but it's wrapped in quotes and isn't the real auth link.
+            # A naive "first https?:// anywhere" match grabs that one
+            # instead, quote and all (as a stray %22), which 404s.
+            m = re.search(r'following link:\s*(https?://\S+)', line)
             if m and not url_shown:
                 url_shown = True
                 if on_url:
-                    on_url(m.group(0))
+                    on_url(m.group(1))
                 if on_status:
                     on_status('Switch to your browser to finish signing in — '
                                'a tab should already be open (check Alt+Tab '
@@ -137,6 +194,17 @@ def login_oauth(rtype, remote_name, on_status=None, on_url=None, on_done=None):
         if on_done:
             on_done(False, create.stderr.strip() or 'Could not save credentials')
         return
+
+    try:
+        create_json = json.loads(create.stdout)
+    except json.JSONDecodeError:
+        create_json = {}
+    if create_json.get('State'):
+        ok, err = _finish_config_questions(remote_name, create_json)
+        if not ok:
+            if on_done:
+                on_done(False, f'Signed in, but setup didn\'t finish: {err}')
+            return
 
     _make_notes_folder(remote_name)
     if on_done:

@@ -12,7 +12,6 @@
     searchMode: false,
     contextNoteId: null,
     allCount: 0,
-    trashCount: 0,
   };
 
   // ── Elements ───────────────────────────────────────────────────────────────
@@ -23,7 +22,6 @@
     panelTitle:      $('panel-title'),
     panelCount:      $('panel-count'),
     countAll:        $('count-all'),
-    countTrash:      $('count-trash'),
     searchInput:     $('search-input'),
     btnNewNote:      $('btn-new-note'),
     btnNewFolder:    $('btn-new-folder'),
@@ -70,12 +68,10 @@
     const data = await api.get('/api/folders');
     state.folders = data.folders;
     state.allCount = data.all_count;
-    state.trashCount = data.trash_count;
 
     el.countAll.textContent = data.all_count || '';
-    el.countTrash.textContent = data.trash_count || '';
 
-    // Re-render dynamic folders (between header and divider/trash)
+    // Re-render dynamic folders (between header and divider)
     const existing = el.folderList.querySelectorAll('.dynamic-folder');
     existing.forEach(e => e.remove());
 
@@ -133,7 +129,7 @@
     if (sort === 'title') {
       notes.sort((a, b) => a.title.localeCompare(b.title));
     } else if (sort === 'created') {
-      notes.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+      notes.sort((a, b) => (b.created || '').localeCompare(a.created || ''));
     }
 
     state.notes = notes;
@@ -199,19 +195,13 @@
       item.classList.toggle('active', item.dataset.folder === folder);
     });
 
-    const title = folder === 'all' ? 'All Notes'
-                : folder === 'trash' ? 'Recently Deleted'
-                : folder;
-    el.panelTitle.textContent = title;
+    el.panelTitle.textContent = folder === 'all' ? 'All Notes' : folder;
 
     // Close editor if current note not in this folder
     if (state.currentNoteId) {
       const note = state.notes.find(n => n.id === state.currentNoteId);
-      if (note) {
-        if (folder !== 'all' && note.folder !== folder &&
-            !(folder === 'trash' && note.folder === 'Trash')) {
-          closeEditor();
-        }
+      if (note && folder !== 'all' && note.folder !== folder) {
+        closeEditor();
       }
     }
 
@@ -324,7 +314,7 @@
   // ── New note ───────────────────────────────────────────────────────────────
   el.btnNewNote.addEventListener('click', async () => {
     await flushSave();
-    const folder = ['all', 'trash'].includes(state.currentFolder) ? 'Notes' : state.currentFolder;
+    const folder = state.currentFolder === 'all' ? 'Notes' : state.currentFolder;
     const note = await api.post('/api/notes', { folder });
     state.notes.unshift({ ...note, date_display: 'Now' });
     renderNotesList();
@@ -337,6 +327,7 @@
 
   async function deleteNote(id) {
     if (!id) return;
+    if (!confirm('Permanently delete this note?')) return;
     await api.del(`/api/notes/${id}`);
     if (state.currentNoteId === id) closeEditor();
     state.notes = state.notes.filter(n => n.id !== id);
@@ -427,9 +418,7 @@
   });
 
   function labelForFolder(folder) {
-    if (folder === 'all') return 'All Notes';
-    if (folder === 'trash') return 'Recently Deleted';
-    return folder;
+    return folder === 'all' ? 'All Notes' : folder;
   }
 
   // ── Sort ───────────────────────────────────────────────────────────────────

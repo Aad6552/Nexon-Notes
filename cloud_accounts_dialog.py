@@ -1,4 +1,4 @@
-"""Sign-in dialog for Proton Drive / Google Drive / Microsoft OneDrive."""
+"""Sign-in dialog for Proton Drive / Microsoft OneDrive."""
 
 import threading
 
@@ -103,12 +103,8 @@ class CloudAccountsDialog(QDialog):
             self._oauth_login_flow(rtype)
 
     def _oauth_login_flow(self, rtype):
-        # Google/OneDrive both use the same local OAuth callback port, so
-        # only one browser sign-in can be in flight at a time — block the
-        # other Connect buttons rather than let them collide on it.
-        for other_rtype in ('drive', 'onedrive'):
-            self._rows[other_rtype]['btn'].setEnabled(False)
         widgets = self._rows[rtype]
+        widgets['btn'].setEnabled(False)
         widgets['status'].setText('Opening your browser to sign in…')
         remote_name = cl.DEFAULT_REMOTE_NAMES[rtype]
 
@@ -181,11 +177,5 @@ class CloudAccountsDialog(QDialog):
         else:
             QMessageBox.warning(self, 'Sign-in failed', msg)
         self._refresh_row(rtype)
-        if rtype in ('drive', 'onedrive'):
-            # Both share the OAuth port and were blocked together — unblock
-            # together too, regardless of which one just finished.
-            for other_rtype in ('drive', 'onedrive'):
-                if other_rtype != rtype:
-                    self._rows[other_rtype]['btn'].setEnabled(True)
         if self._on_change:
             self._on_change()

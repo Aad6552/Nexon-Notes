@@ -1,9 +1,9 @@
 """Background cloud backup for Ubuntu Notes.
 
 Uses whatever rclone remotes the user has configured (`rclone config`) to
-copy notes.db to Proton Drive, Google Drive, and/or Microsoft OneDrive.
-Remotes are matched by *type*, not name, so this keeps working no matter
-what the user called them.
+copy notes.db to Proton Drive and/or Microsoft OneDrive. Remotes are
+matched by *type*, not name, so this keeps working no matter what the
+user called them.
 
 If a remote isn't configured, or the user isn't currently logged in to it
 (expired token, offline, etc.), that remote is silently skipped — this is
@@ -17,7 +17,6 @@ import time
 
 REMOTE_TYPES = {
     'protondrive': 'Proton Drive',
-    'drive': 'Google Drive',
     'onedrive': 'Microsoft OneDrive',
 }
 
