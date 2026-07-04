@@ -93,8 +93,8 @@ remotes (`cloud_login.py` creates them, `cloud_sync.py` uses them).
 `install.sh` installs it via Homebrew automatically; if you're running from
 source without the installer, get it yourself with `brew install rclone`.
 
-- A backup runs shortly after launch, ~10s after you stop typing, and every
-  3 minutes in the background.
+- A backup runs shortly after launch, ~10s after you stop typing, every 5
+  seconds in the background, and once more on quit.
 - If you're logged out or offline, that drive is silently skipped —
   best-effort backup, not a requirement to use the app.
 - Files land in a `notes/notes.db` folder on each connected drive.

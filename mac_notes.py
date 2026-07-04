@@ -291,7 +291,7 @@ class MainWindow(QMainWindow):
 
         self._cloud_timer = QTimer(self)
         self._cloud_timer.timeout.connect(self._trigger_cloud_sync)
-        self._cloud_timer.start(3 * 60 * 1000)  # every 3 minutes
+        self._cloud_timer.start(5000)  # every 5 seconds
 
         self._cloud_debounce_timer = QTimer(self)  # fires a bit after typing settles
         self._cloud_debounce_timer.setSingleShot(True)
@@ -972,7 +972,7 @@ class MainWindow(QMainWindow):
         self._flush()
         # Best-effort: fire off a last sync attempt but don't make the user
         # wait for it. Cloud backup already happens continuously while the
-        # app is open (every 3 minutes, plus ~10s after you stop typing),
+        # app is open (every 5s, plus ~10s after you stop typing),
         # so the only risk here is losing the last few seconds of edits.
         # Waiting on it here — even off the GUI thread with a bounded
         # failsafe — still kept the process alive for that whole bound with
