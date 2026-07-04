@@ -1,25 +1,59 @@
 #!/usr/bin/env bash
-# Installs Mac Notes for the current user:
-#   - installs rclone (via Homebrew) if it isn't already on $PATH
-#   - copies the app into ~/Library/Application Support/Mac Notes
-#   - registers a Mac Notes.app launcher in /Applications (Spotlight/Launchpad)
+# Installs Mac Notes for the current user (macOS and Linux):
+#   - installs rclone if it isn't already on $PATH (used for cloud backup)
+#   - copies the app into a per-user app directory
+#   - macOS: registers a Mac Notes.app launcher in /Applications
+#     (Spotlight/Launchpad)
+#   - Linux: registers a .desktop launcher in ~/.local/share/applications
+#     (app grid / activities search)
 set -e
 
-if [[ "$(uname)" != "Darwin" ]]; then
-  echo "This installer is for macOS only (detected $(uname))." >&2
+OS="$(uname)"
+if [[ "$OS" != "Darwin" && "$OS" != "Linux" ]]; then
+  echo "This installer supports macOS and Linux only (detected $OS)." >&2
   exit 1
 fi
 
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
-INSTALL_DIR="$HOME/Library/Application Support/Mac Notes"
-APP_BUNDLE="/Applications/Mac Notes.app"
 VERSION="$(tr -d '[:space:]' < "$SRC_DIR/VERSION" 2>/dev/null || echo "1.0.0")"
+
+if [[ "$OS" == "Darwin" ]]; then
+  INSTALL_DIR="$HOME/Library/Application Support/Mac Notes"
+  APP_BUNDLE="/Applications/Mac Notes.app"
+else
+  INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/mac-notes"
+  DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  DESKTOP_FILE="$DESKTOP_DIR/mac-notes.desktop"
+fi
+
+# --- Linux: system packages run.sh needs to build its venv / run Qt ----------
+if [[ "$OS" == "Linux" ]] && command -v apt-get >/dev/null 2>&1; then
+  missing=()
+  command -v rsync >/dev/null 2>&1        || missing+=(rsync)
+  python3 -m venv --help >/dev/null 2>&1  || missing+=(python3-venv)
+  # Qt 6.5+ xcb platform plugin needs these at runtime on Ubuntu 22.04+
+  ldconfig -p 2>/dev/null | grep -q libxcb-cursor  || missing+=(libxcb-cursor0)
+  ldconfig -p 2>/dev/null | grep -q 'libGL\.so'    || missing+=(libgl1)
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Installing system packages: ${missing[*]}"
+    if ! sudo apt-get install -y "${missing[@]}"; then
+      echo "Warning: could not install ${missing[*]}" >&2
+      echo "Install them yourself if the app fails to start." >&2
+    fi
+  fi
+fi
 
 # --- rclone (used for cloud backup) -----------------------------------------
 if ! command -v rclone >/dev/null 2>&1; then
   echo "Installing rclone..."
-  sudo -v
-  if ! curl https://rclone.org/install.sh | sudo bash; then
+  installed=false
+  if [[ "$OS" == "Linux" ]] && command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get install -y rclone && installed=true
+  else
+    sudo -v
+    curl https://rclone.org/install.sh | sudo bash && installed=true
+  fi
+  if [[ "$installed" != true ]]; then
     echo "Warning: rclone install failed" >&2
     echo "Cloud backup will be unavailable until you install rclone yourself" >&2
     echo "(see https://rclone.org/downloads/)." >&2
@@ -35,6 +69,36 @@ rsync -a --delete \
   "$SRC_DIR"/ "$INSTALL_DIR"/
 
 chmod +x "$INSTALL_DIR/run.sh"
+
+# =============================================================================
+# Linux: register a .desktop launcher and finish
+# =============================================================================
+if [[ "$OS" == "Linux" ]]; then
+  mkdir -p "$DESKTOP_DIR"
+  cat > "$DESKTOP_FILE" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Mac Notes
+Comment=Simple notes app with folders and cloud backup
+Exec="$INSTALL_DIR/run.sh"
+Icon=$INSTALL_DIR/assets/logo.png
+Terminal=false
+Categories=Utility;Office;
+StartupWMClass=Mac Notes
+EOF
+  chmod 644 "$DESKTOP_FILE"
+  command -v update-desktop-database >/dev/null 2>&1 && \
+    update-desktop-database "$DESKTOP_DIR" 2>/dev/null || true
+
+  echo "Installed Mac Notes to $INSTALL_DIR"
+  echo "Launcher installed at $DESKTOP_FILE"
+  echo "Look for \"Mac Notes\" in your app grid (log out and back in if it doesn't show up right away)."
+  exit 0
+fi
+
+# =============================================================================
+# macOS: build a Mac Notes.app bundle in /Applications
+# =============================================================================
 
 # --- build the .app icon from assets/logo.png -------------------------------
 ICONSET="$(mktemp -d)/AppIcon.iconset"
