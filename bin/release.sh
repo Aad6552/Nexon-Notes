@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Bumps the app version, commits everything pending, tags the release,
-# and pushes to GitHub.
+# pushes to GitHub, and publishes a GitHub Release for it (so the in-app
+# update checker has a real "latest release" to compare against).
 #
 # Usage: bin/release.sh [major|minor|patch]   (defaults to patch)
 set -e
 
 cd "$(dirname "$0")/.."
+
+command -v gh >/dev/null 2>&1 || { echo "gh (GitHub CLI) is required to publish releases." >&2; exit 1; }
 
 BUMP="${1:-patch}"
 VERSION_FILE="VERSION"
@@ -39,5 +42,7 @@ git commit -m "Release v${new_version}"
 git tag "v${new_version}"
 git push origin HEAD
 git push origin "v${new_version}"
+
+gh release create "v${new_version}" --title "v${new_version}" --generate-notes
 
 echo "Released v${new_version}"
