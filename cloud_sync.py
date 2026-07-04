@@ -1,9 +1,9 @@
 """Background cloud backup for Mac Notes.
 
 Uses whatever rclone remotes the user has configured (`rclone config`) to
-copy notes.db to Proton Drive and/or Microsoft OneDrive. Remotes are
-matched by *type*, not name, so this keeps working no matter what the
-user called them.
+copy notes.db to Proton Drive, Microsoft OneDrive, and/or Google Drive.
+Remotes are matched by *type*, not name, so this keeps working no matter
+what the user called them.
 
 If a remote isn't configured, or the user isn't currently logged in to it
 (expired token, offline, etc.), that remote is silently skipped — this is
@@ -18,6 +18,7 @@ import time
 REMOTE_TYPES = {
     'protondrive': 'Proton Drive',
     'onedrive': 'Microsoft OneDrive',
+    'drive': 'Google Drive',
 }
 
 RCLONE_PER_REMOTE_TIMEOUT = 60  # seconds — Proton Drive's handshake can be slow
@@ -39,16 +40,6 @@ class CloudSync:
             target=self._sync_all, args=(on_done,), daemon=True
         )
         thread.start()
-
-    def sync_all_and_wait(self, timeout):
-        """Blocking variant for shutdown: give the last edits a bounded
-        chance to reach the cloud before the process exits and kills any
-        in-flight background sync thread. If a sync is already running,
-        this doesn't wait for it (avoids a lock-acquire race) — the caller
-        should just proceed with shutdown."""
-        done = threading.Event()
-        self.sync_all_async(on_done=done.set)
-        done.wait(timeout=timeout)
 
     def _sync_all(self, on_done):
         try:

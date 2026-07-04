@@ -283,8 +283,8 @@ class MainWindow(QMainWindow):
         self._save_timer.setSingleShot(True)
         self._save_timer.timeout.connect(self._do_save)
 
-        # Cloud backup: pushes notes.db to Proton Drive / OneDrive via
-        # rclone, whichever the user is signed in to.
+        # Cloud backup: pushes notes.db to Proton Drive / OneDrive /
+        # Google Drive via rclone, whichever the user is signed in to.
         self.cloud = CloudSync(DB_PATH)
         self._sync_signal = SyncSignal()
         self._sync_signal.finished.connect(self._on_cloud_sync_done)
@@ -970,9 +970,16 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, ev):
         self._flush()
-        # Bounded wait so the last edits reach the cloud before the process
-        # exits and takes any in-flight background sync down with it.
-        self.cloud.sync_all_and_wait(timeout=8)
+        # Best-effort: fire off a last sync attempt but don't make the user
+        # wait for it. Cloud backup already happens continuously while the
+        # app is open (every 3 minutes, plus ~10s after you stop typing),
+        # so the only risk here is losing the last few seconds of edits.
+        # Waiting on it here — even off the GUI thread with a bounded
+        # failsafe — still kept the process alive for that whole bound with
+        # no window to show for it, which is exactly what the desktop
+        # treats as an unresponsive app ("Force Quit?") even though nothing
+        # was actually frozen.
+        self.cloud.sync_all_async()
         ev.accept()
 
 

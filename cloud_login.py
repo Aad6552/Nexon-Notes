@@ -1,10 +1,11 @@
-"""In-app sign-in for Proton Drive / Microsoft OneDrive.
+"""In-app sign-in for Proton Drive / Microsoft OneDrive / Google Drive.
 
 Wires credentials into rclone remotes so cloud_sync.py can back up to them.
-For OneDrive this runs `rclone authorize`, which opens the user's browser
-straight to Microsoft's own login page — no password or token ever passes
-through this app. For Proton Drive (no browser OAuth in rclone), it takes
-an email/password/2FA form and hands it to `rclone config create` directly.
+For OneDrive and Google Drive this runs `rclone authorize`, which opens the
+user's browser straight to the provider's own login page — no password or
+token ever passes through this app. For Proton Drive (no browser OAuth in
+rclone), it takes an email/password/2FA form and hands it to
+`rclone config create` directly.
 """
 
 import json
@@ -15,9 +16,10 @@ import threading
 from cloud_sync import REMOTE_TYPES, REMOTE_SUBDIR
 
 PROVIDER_TYPES = [('protondrive', REMOTE_TYPES['protondrive']),
-                   ('onedrive', REMOTE_TYPES['onedrive'])]
+                   ('onedrive', REMOTE_TYPES['onedrive']),
+                   ('drive', REMOTE_TYPES['drive'])]
 
-DEFAULT_REMOTE_NAMES = {'protondrive': 'proton', 'onedrive': 'onedrive'}
+DEFAULT_REMOTE_NAMES = {'protondrive': 'proton', 'onedrive': 'onedrive', 'drive': 'gdrive'}
 OAUTH_TIMEOUT = 300  # seconds allowed to complete the browser login
 
 
@@ -76,9 +78,19 @@ def _answer_for(option):
         return 'false'  # we just got a token — keep it, don't re-auth
     if name == 'config_driveid':
         return _pick_drive_example(option)
-    # config_type ("onedrive" vs sharepoint/etc), config_drive_ok, and
-    # anything else: rclone's own default is the sane choice.
-    return str(option.get('Default', ''))
+    # config_type ("onedrive" vs sharepoint/etc), config_change_team_drive
+    # (Google Drive), config_drive_ok, and anything else: rclone's own
+    # default is the sane choice.
+    default = option.get('Default', '')
+    if isinstance(default, bool):
+        # rclone's non-interactive protocol matches bool answers against
+        # lowercase "true"/"false" literals — Python's str(bool) capitalizes
+        # ("True"/"False"), which it doesn't recognize and silently treats
+        # as unanswered, falling back to whatever branch its own internal
+        # default takes (which for config_refresh_token-like confirmations
+        # can mean restarting the browser OAuth step instead of finishing).
+        return 'true' if default else 'false'
+    return str(default)
 
 
 def _finish_config_questions(remote_name, response_json):
