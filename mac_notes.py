@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize, QTimer, QObject, pyqtSignal
 from PyQt6.QtGui import (
     QFont, QColor, QIcon, QPixmap, QPainter, QPen,
-    QTextCharFormat, QTextCursor,
+    QTextCharFormat, QTextCursor, QAction, QKeySequence,
 )
 
 from cloud_sync import CloudSync
@@ -305,6 +305,8 @@ class MainWindow(QMainWindow):
 
         self._update_signal = UpdateSignal()
         self._update_signal.available.connect(self._on_update_available)
+        self._update_signal.up_to_date.connect(self._on_update_up_to_date)
+        self._update_signal.failed.connect(self._on_update_check_failed)
         QTimer.singleShot(4000, self._check_for_updates)
 
         self.setWindowTitle(f'Mac Notes v{APP_VERSION}' if APP_VERSION else 'Mac Notes')
@@ -336,6 +338,58 @@ class MainWindow(QMainWindow):
         spl.setSizes([220, 285, 655])
         spl.setCollapsible(0, False)
         spl.setCollapsible(1, False)
+
+        self._build_menus()
+
+    # ── Menu bar ──────────────────────────────────────────────────────────────
+    def _build_menus(self):
+        mb = self.menuBar()
+
+        def act(menu, text, slot, shortcut=None, role=None):
+            a = QAction(text, self)
+            if shortcut:
+                a.setShortcut(QKeySequence(shortcut))
+            if role is not None:
+                a.setMenuRole(role)
+            a.triggered.connect(slot)
+            menu.addAction(a)
+            return a
+
+        file_menu = mb.addMenu('&File')
+        act(file_menu, 'New Note', self._on_new_note, 'Ctrl+N')
+        act(file_menu, 'New Folder…', self._on_new_folder, 'Ctrl+Shift+N')
+        act(file_menu, 'Save', self._flush, 'Ctrl+S')
+        file_menu.addSeparator()
+        act(file_menu, 'Sync to Cloud Now', self._trigger_cloud_sync, 'Ctrl+Shift+S')
+        act(file_menu, 'Cloud Accounts…', self._open_cloud_accounts)
+        file_menu.addSeparator()
+        act(file_menu, 'Quit', self.close, QKeySequence.StandardKey.Quit,
+            role=QAction.MenuRole.QuitRole)
+
+        edit_menu = mb.addMenu('&Edit')
+        act(edit_menu, 'Find', self._focus_search, 'Ctrl+F')
+
+        fmt_menu = mb.addMenu('F&ormat')
+        act(fmt_menu, 'Bold', self._fmt_bold, 'Ctrl+B')
+        act(fmt_menu, 'Italic', self._fmt_italic, 'Ctrl+I')
+        act(fmt_menu, 'Underline', self._fmt_underline, 'Ctrl+U')
+        fmt_menu.addSeparator()
+        act(fmt_menu, 'Heading 1', self._fmt_h1, 'Ctrl+1')
+        act(fmt_menu, 'Heading 2', self._fmt_h2, 'Ctrl+2')
+        fmt_menu.addSeparator()
+        act(fmt_menu, 'Text Colour…', self._fmt_color)
+
+        # On macOS Qt relocates About / app-specific items into the
+        # application menu; on Linux/Windows they stay under Help.
+        help_menu = mb.addMenu('&Help')
+        act(help_menu, 'About Mac Notes', self._show_about,
+            role=QAction.MenuRole.AboutRole)
+        act(help_menu, 'Check for Updates…', lambda: self._check_for_updates(manual=True),
+            role=QAction.MenuRole.ApplicationSpecificRole)
+
+    def _focus_search(self):
+        self.search_entry.setFocus()
+        self.search_entry.selectAll()
 
     # ── Sidebar ───────────────────────────────────────────────────────────────
     def _mk_sidebar(self):
@@ -717,8 +771,50 @@ class MainWindow(QMainWindow):
         self.cloud_status_lbl.setText('\n'.join(parts))
 
     # ── App updates ───────────────────────────────────────────────────────────
-    def _check_for_updates(self):
-        check_for_update_async(APP_VERSION, on_available=self._update_signal.available.emit)
+    def _check_for_updates(self, manual=False):
+        if manual:
+            # Triggered from the menu: report every outcome, not just updates.
+            check_for_update_async(
+                APP_VERSION,
+                on_available=self._update_signal.available.emit,
+                on_up_to_date=self._update_signal.up_to_date.emit,
+                on_error=self._update_signal.failed.emit,
+            )
+        else:
+            check_for_update_async(APP_VERSION, on_available=self._update_signal.available.emit)
+
+    def _on_update_up_to_date(self):
+        QMessageBox.information(
+            self, 'Check for Updates',
+            f'You are up to date.\nMac Notes v{APP_VERSION} is the latest version.',
+        )
+
+    def _on_update_check_failed(self):
+        QMessageBox.warning(
+            self, 'Check for Updates',
+            'Could not check for updates.\n'
+            'Check your internet connection and try again.',
+        )
+
+    def _show_about(self):
+        box = QMessageBox(self)
+        box.setWindowTitle('About Mac Notes')
+        logo_pix = QPixmap(LOGO_PATH)
+        if not logo_pix.isNull():
+            box.setIconPixmap(logo_pix.scaled(
+                64, 64,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            ))
+        box.setText(f'<b>Mac Notes</b><br>Version {APP_VERSION or "unknown"}')
+        box.setInformativeText(
+            'A simple, native-feeling notes app.<br>'
+            'Notes are stored locally in SQLite with optional cloud backup '
+            'via rclone.<br><br>'
+            '<a href="https://github.com/Aad6552/Mac-Notes">'
+            'github.com/Aad6552/Mac-Notes</a>'
+        )
+        box.exec()
 
     def _on_update_available(self, latest_version):
         box = QMessageBox(self)
@@ -814,19 +910,6 @@ class MainWindow(QMainWindow):
         fmt = QTextCharFormat()
         fmt.setForeground(chosen)
         self._apply_fmt(fmt)
-
-    # ── Keys ──────────────────────────────────────────────────────────────────
-    def keyPressEvent(self, ev):
-        ctrl = ev.modifiers() & Qt.KeyboardModifier.ControlModifier
-        if ctrl:
-            k = ev.key()
-            if k == Qt.Key.Key_N:  self._on_new_note();              return
-            if k == Qt.Key.Key_S:  self._flush();                    return
-            if k == Qt.Key.Key_F:
-                self.search_entry.setFocus()
-                self.search_entry.selectAll()
-                return
-        super().keyPressEvent(ev)
 
     # ── Folder events ─────────────────────────────────────────────────────────
     def _on_folder_changed(self, row):
@@ -1021,6 +1104,27 @@ class MainWindow(QMainWindow):
 _lock_file = None  # kept open for the process lifetime — closing it releases the lock
 
 
+def _fix_macos_app_name():
+    """macOS takes the menu-bar app name from the running process's bundle,
+    which is "Python" when launched from a plain interpreter — no Qt API
+    changes it. Rewrite the bundle's name in-place before the app starts.
+    Needs pyobjc-framework-Cocoa (run.sh installs it on macOS); harmless
+    no-op everywhere else."""
+    if sys.platform != 'darwin':
+        return
+    try:
+        from Foundation import NSBundle
+    except ImportError:
+        return
+    bundle = NSBundle.mainBundle()
+    if bundle is None:
+        return
+    info = bundle.localizedInfoDictionary() or bundle.infoDictionary()
+    if info is not None:
+        info['CFBundleName'] = 'Mac Notes'
+        info['CFBundleDisplayName'] = 'Mac Notes'
+
+
 def _acquire_single_instance_lock():
     """Refuse to start a second copy: two instances writing notes.db at once
     risks corruption, and a second "Connect" while one is mid sign-in fails
@@ -1036,8 +1140,11 @@ def _acquire_single_instance_lock():
 
 
 def main():
+    _fix_macos_app_name()
     app = QApplication(sys.argv)
     app.setApplicationName('Mac Notes')
+    app.setApplicationDisplayName('Mac Notes')
+    app.setApplicationVersion(APP_VERSION)
     app.setStyleSheet(STYLE)
 
     logo_pix = QPixmap(LOGO_PATH)

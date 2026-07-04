@@ -13,6 +13,8 @@ REQUEST_TIMEOUT = 5  # seconds
 
 class UpdateSignal(QObject):
     available = pyqtSignal(str)  # emits the newer version string
+    up_to_date = pyqtSignal()    # no newer version found
+    failed = pyqtSignal()        # network/parsing error
 
 
 def _version_tuple(version):
@@ -31,17 +33,24 @@ def _fetch_latest_version():
     return data.get('tag_name', '').lstrip('v')
 
 
-def check_for_update_async(current_version, on_available):
+def check_for_update_async(current_version, on_available,
+                           on_up_to_date=None, on_error=None):
     """Fetches the latest GitHub release in a background thread and calls
     on_available(latest_version) if it's newer than current_version.
-    Silently gives up on any network/parsing error (offline, rate-limited,
-    no releases published yet, etc.)."""
+    For manual checks, on_up_to_date() fires when already current and
+    on_error() on any network/parsing error (offline, rate-limited, no
+    releases published yet, etc.); when omitted those outcomes stay silent,
+    as befits the automatic background check."""
     def worker():
         try:
             latest = _fetch_latest_version()
         except (urllib.error.URLError, ValueError, OSError):
+            if on_error:
+                on_error()
             return
         if latest and _version_tuple(latest) > _version_tuple(current_version):
             on_available(latest)
+        elif on_up_to_date:
+            on_up_to_date()
 
     threading.Thread(target=worker, daemon=True).start()

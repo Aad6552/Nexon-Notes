@@ -17,4 +17,12 @@ python3 -c "from PyQt6 import QtWidgets" 2>/dev/null || {
   pip install --quiet PyQt6
 }
 
+# macOS only: lets the app rename its menu-bar entry from "Python" to "Mac Notes"
+if [ "$(uname)" = "Darwin" ]; then
+  python3 -c "import Foundation" 2>/dev/null || {
+    echo "Installing pyobjc-framework-Cocoa…"
+    pip install --quiet pyobjc-framework-Cocoa
+  }
+fi
+
 python3 mac_notes.py
