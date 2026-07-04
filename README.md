@@ -25,7 +25,7 @@ you check out this repo.
 
 ## Installing as a desktop app
 
-Run the installer (no `sudo` needed):
+macOS only. Run the installer:
 
 ```bash
 ./install.sh
@@ -33,12 +33,19 @@ Run the installer (no `sudo` needed):
 
 This installs Mac Notes for your user account by:
 
+- installing [rclone](https://rclone.org) via Homebrew if it isn't already
+  on `$PATH` (needed for cloud backup; skipped with a warning if Homebrew
+  itself isn't installed)
 - copying this app folder to `~/Library/Application Support/Mac Notes`
-- building `Mac Notes.app` in `~/Applications`, wrapping `run.sh` with a
-  proper icon and `Info.plist`
+- building `Mac Notes.app` and moving it into `/Applications`, wrapping
+  `run.sh` with a proper icon and `Info.plist`
 
 The original project folder is not deleted or moved. It is copied into the
 local app directory so macOS can launch it like a normal app.
+
+Moving the built app into `/Applications` normally doesn't require a
+password on admin accounts; if your account can't write there directly, the
+installer falls back to `sudo` and will prompt for your password.
 
 Press <kbd>Cmd</kbd>+<kbd>Space</kbd> and type "Mac Notes" — it should
 appear in Spotlight/Launchpad. If it doesn't show up right away, log out and
@@ -50,7 +57,7 @@ checkout. It resyncs the installed copy and rebuilds the app bundle.
 To uninstall:
 
 ```bash
-rm -rf ~/Applications/"Mac Notes.app"
+sudo rm -rf /Applications/"Mac Notes.app"
 rm -rf ~/Library/"Application Support"/"Mac Notes"
 ```
 
@@ -82,8 +89,9 @@ the bottom of the sidebar to sign in:
   forget its credentials.
 
 Behind the scenes this is all powered by [rclone](https://rclone.org)
-remotes (`cloud_login.py` creates them, `cloud_sync.py` uses them). Install
-it with `brew install rclone`.
+remotes (`cloud_login.py` creates them, `cloud_sync.py` uses them).
+`install.sh` installs it via Homebrew automatically; if you're running from
+source without the installer, get it yourself with `brew install rclone`.
 
 - A backup runs shortly after launch, ~10s after you stop typing, and every
   3 minutes in the background.
@@ -104,7 +112,7 @@ cloud_sync.py            Background rclone backup to Proton Drive/OneDrive/Googl
 cloud_login.py           In-app sign-in — creates the rclone remotes cloud_sync.py uses
 cloud_accounts_dialog.py "Manage Cloud Accounts" dialog (PyQt6)
 run.sh                   Sets up the venv and starts the app
-install.sh               Copies the app to ~/Library/Application Support and builds the .app launcher
+install.sh               macOS installer: installs rclone, copies the app to ~/Library/Application Support, and builds/moves the .app launcher into /Applications
 bin/build-macos.sh       Freezes the app with PyInstaller into a standalone .app/.dmg
 assets/logo.png          App icon used by the installed launcher
 app.py                   REST API over the same notes.db — see below
@@ -130,5 +138,5 @@ with `./run_api.sh`; see the comments at the top of `app.py` for details.
   the app is unsigned. Right-click it and choose "Open" instead of
   double-clicking, then confirm in the dialog that appears.
 - **App doesn't appear in Spotlight after installing**: double-check
-  `~/Applications/Mac Notes.app` exists, then log out and back in (or run
-  `mdimport ~/Applications/"Mac Notes.app"`).
+  `/Applications/Mac Notes.app` exists, then log out and back in (or run
+  `mdimport /Applications/"Mac Notes.app"`).

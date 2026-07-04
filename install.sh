@@ -1,15 +1,33 @@
 #!/usr/bin/env bash
 # Installs Mac Notes for the current user:
+#   - installs rclone (via Homebrew) if it isn't already on $PATH
 #   - copies the app into ~/Library/Application Support/Mac Notes
-#   - registers a Mac Notes.app launcher in ~/Applications (Spotlight/Launchpad)
+#   - registers a Mac Notes.app launcher in /Applications (Spotlight/Launchpad)
 set -e
+
+if [[ "$(uname)" != "Darwin" ]]; then
+  echo "This installer is for macOS only (detected $(uname))." >&2
+  exit 1
+fi
 
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 INSTALL_DIR="$HOME/Library/Application Support/Mac Notes"
-APP_BUNDLE="$HOME/Applications/Mac Notes.app"
+APP_BUNDLE="/Applications/Mac Notes.app"
 VERSION="$(tr -d '[:space:]' < "$SRC_DIR/VERSION" 2>/dev/null || echo "1.0.0")"
 
-mkdir -p "$INSTALL_DIR" "$HOME/Applications"
+# --- rclone (used for cloud backup) -----------------------------------------
+if ! command -v rclone >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "Installing rclone via Homebrew..."
+    brew install rclone
+  else
+    echo "Warning: rclone not found and Homebrew isn't installed." >&2
+    echo "Cloud backup will be unavailable until you install rclone yourself" >&2
+    echo "(see https://rclone.org/downloads/)." >&2
+  fi
+fi
+
+mkdir -p "$INSTALL_DIR"
 
 rsync -a --delete \
   --exclude '.venv' \
@@ -31,18 +49,18 @@ iconutil -c icns "$ICONSET" -o "$INSTALL_DIR/assets/AppIcon.icns"
 rm -rf "$(dirname "$ICONSET")"
 
 # --- wrap run.sh in a minimal .app bundle so macOS treats it as a real app --
-rm -rf "$APP_BUNDLE"
-mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
+STAGE_BUNDLE="$(mktemp -d)/Mac Notes.app"
+mkdir -p "$STAGE_BUNDLE/Contents/MacOS" "$STAGE_BUNDLE/Contents/Resources"
 
-cat > "$APP_BUNDLE/Contents/MacOS/mac-notes" <<EOF
+cat > "$STAGE_BUNDLE/Contents/MacOS/mac-notes" <<EOF
 #!/usr/bin/env bash
 exec "$INSTALL_DIR/run.sh"
 EOF
-chmod +x "$APP_BUNDLE/Contents/MacOS/mac-notes"
+chmod +x "$STAGE_BUNDLE/Contents/MacOS/mac-notes"
 
-cp "$INSTALL_DIR/assets/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
+cp "$INSTALL_DIR/assets/AppIcon.icns" "$STAGE_BUNDLE/Contents/Resources/AppIcon.icns"
 
-cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
+cat > "$STAGE_BUNDLE/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -66,6 +84,18 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<EOF
 </dict>
 </plist>
 EOF
+
+# --- move the bundle into /Applications -------------------------------------
+# /Applications is writable by admin users on most Macs; fall back to sudo
+# if this account doesn't have direct write access.
+if rm -rf "$APP_BUNDLE" 2>/dev/null && cp -R "$STAGE_BUNDLE" "$APP_BUNDLE" 2>/dev/null; then
+  :
+else
+  echo "Need elevated permissions to write to /Applications..."
+  sudo rm -rf "$APP_BUNDLE"
+  sudo cp -R "$STAGE_BUNDLE" "$APP_BUNDLE"
+fi
+rm -rf "$(dirname "$STAGE_BUNDLE")"
 
 echo "Installed Mac Notes to $INSTALL_DIR"
 echo "Launcher installed at $APP_BUNDLE"
