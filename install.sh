@@ -21,8 +21,12 @@ if [[ "$OS" == "Darwin" ]]; then
   INSTALL_DIR="$HOME/Library/Application Support/Nexon Notes"
   APP_BUNDLE="/Applications/Nexon Notes.app"
 else
-  INSTALL_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/nexon-notes"
-  DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+  # Deliberately not honoring $XDG_DATA_HOME: terminals spawned inside
+  # sandboxed apps (e.g. VS Code's snap package) rewrite it to point inside
+  # their own confined data dir, which would install the launcher somewhere
+  # the real desktop session's app grid never looks.
+  INSTALL_DIR="$HOME/.local/share/nexon-notes"
+  DESKTOP_DIR="$HOME/.local/share/applications"
   DESKTOP_FILE="$DESKTOP_DIR/nexon-notes.desktop"
 fi
 
