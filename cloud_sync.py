@@ -16,6 +16,11 @@ out to each connected cloud remote as-is.
 If a remote isn't configured, or the user isn't currently logged in to it
 (expired token, offline, etc.), that remote is silently skipped — this is
 best-effort backup, not a requirement for the app to function.
+
+iCloud Drive is handled separately from the rclone remotes above: macOS
+already syncs ~/Library/Mobile Documents/com~apple~CloudDocs to iCloud on
+its own, so backing up there is just a local file copy (see _sync_icloud),
+gated by a marker file rather than an rclone remote/OAuth token.
 """
 
 import os
@@ -23,6 +28,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 from urllib.parse import quote
@@ -35,9 +41,14 @@ REMOTE_TYPES = {
 }
 
 RCLONE_PER_REMOTE_TIMEOUT = 60  # seconds — Proton Drive's handshake can be slow
-REMOTE_SUBDIR = 'notes'
+REMOTE_SUBDIR = 'nexon-notes'
+LEGACY_REMOTE_SUBDIR = 'notes'  # pre-rename folder name; migrated on first sync
 EXPORT_SUBDIR = 'folders'  # per-folder note exports, alongside notes.db
 ALL_NOTES_FOLDER = 'All Notes'
+
+ICLOUD_LABEL = 'iCloud Drive'
+ICLOUD_ROOT = os.path.expanduser('~/Library/Mobile Documents/com~apple~CloudDocs')
+ICLOUD_ENABLED_FLAG = '.icloud_enabled'  # sibling of notes.db; presence = opted in
 
 
 class CloudSync:
@@ -72,11 +83,50 @@ class CloudSync:
                 # whole pass, so the status label doesn't lag behind reality.
                 if on_done:
                     on_done()
+            if self.icloud_enabled():
+                ok = self._sync_icloud(export_dir)
+                self.status[ICLOUD_LABEL] = {'ok': ok, 'when': time.strftime('%H:%M:%S')}
+                if on_done:
+                    on_done()
         finally:
             self._lock.release()
             rerun, self._rerun_requested = self._rerun_requested, False
         if rerun:
             self.sync_all_async(on_done=on_done)
+
+    # ── iCloud Drive (local folder, no rclone/OAuth) ────────────────────────
+    def _icloud_flag_path(self):
+        return os.path.join(os.path.dirname(self.db_path), ICLOUD_ENABLED_FLAG)
+
+    @staticmethod
+    def icloud_available():
+        return sys.platform == 'darwin' and os.path.isdir(ICLOUD_ROOT)
+
+    def icloud_enabled(self):
+        return self.icloud_available() and os.path.exists(self._icloud_flag_path())
+
+    def set_icloud_enabled(self, enabled):
+        path = self._icloud_flag_path()
+        if enabled:
+            open(path, 'a').close()
+        else:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+
+    def _sync_icloud(self, export_dir):
+        try:
+            target_root = os.path.join(ICLOUD_ROOT, REMOTE_SUBDIR)
+            os.makedirs(target_root, exist_ok=True)
+            shutil.copy2(self.db_path, os.path.join(target_root, 'notes.db'))
+            if export_dir:
+                dest_folders = os.path.join(target_root, EXPORT_SUBDIR)
+                shutil.rmtree(dest_folders, ignore_errors=True)
+                shutil.copytree(export_dir, dest_folders)
+            return True
+        except OSError:
+            return False
 
     def _discover_remotes(self):
         try:
@@ -135,9 +185,10 @@ class CloudSync:
     def _sync_one(self, remote_name, export_dir):
         dest = f'{remote_name}:{REMOTE_SUBDIR}/notes.db'
         try:
-            # Recreate the "notes" folder if it's been deleted/renamed on the
-            # drive since the last sync — copyto alone usually implies this,
-            # but backends vary, so make it explicit rather than assumed.
+            self._migrate_legacy_folder(remote_name)
+            # Recreate the REMOTE_SUBDIR folder if it's been deleted/renamed on
+            # the drive since the last sync — copyto alone usually implies
+            # this, but backends vary, so make it explicit rather than assumed.
             subprocess.run(
                 ['rclone', 'mkdir', f'{remote_name}:{REMOTE_SUBDIR}'],
                 capture_output=True, text=True, timeout=30,
@@ -160,3 +211,21 @@ class CloudSync:
             return folders_result.returncode == 0
         except subprocess.TimeoutExpired:
             return False
+
+    @staticmethod
+    def _migrate_legacy_folder(remote_name):
+        """One-time rename of the old 'notes' backup folder (pre-rename) to
+        REMOTE_SUBDIR, so existing backups aren't orphaned alongside a fresh
+        empty nexon-notes folder. No-ops once the old folder is gone, and
+        never overwrites an existing REMOTE_SUBDIR (moveto on an existing
+        destination directory fails, which we treat as already-migrated)."""
+        legacy = f'{remote_name}:{LEGACY_REMOTE_SUBDIR}'
+        check = subprocess.run(
+            ['rclone', 'lsf', legacy], capture_output=True, text=True, timeout=30,
+        )
+        if check.returncode != 0:
+            return  # legacy folder doesn't exist — nothing to migrate
+        subprocess.run(
+            ['rclone', 'moveto', legacy, f'{remote_name}:{REMOTE_SUBDIR}'],
+            capture_output=True, text=True, timeout=RCLONE_PER_REMOTE_TIMEOUT,
+        )

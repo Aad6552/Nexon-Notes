@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
 )
 
 import cloud_login as cl
+from cloud_sync import ICLOUD_LABEL
 
 
 class _LoginSignal(QObject):
@@ -19,10 +20,11 @@ class _LoginSignal(QObject):
 
 
 class CloudAccountsDialog(QDialog):
-    def __init__(self, parent=None, on_change=None):
+    def __init__(self, parent=None, cloud_sync=None, on_change=None):
         super().__init__(parent)
         self.setWindowTitle('Cloud Accounts')
         self.setMinimumWidth(440)
+        self._cloud = cloud_sync
         self._on_change = on_change
         self._signal = _LoginSignal()
         self._signal.status.connect(self._on_status)
@@ -36,7 +38,7 @@ class CloudAccountsDialog(QDialog):
         lay = QVBoxLayout(self)
         title = QLabel(
             'Sign in and Nexon Notes backs up automatically to a '
-            '"notes" folder on each drive.'
+            '"nexon-notes" folder on each drive.'
         )
         title.setWordWrap(True)
         lay.addWidget(title)
@@ -62,9 +64,43 @@ class CloudAccountsDialog(QDialog):
             self._rows[rtype] = {'status': status_lbl, 'btn': btn, 'copy_btn': copy_btn}
             self._refresh_row(rtype)
 
+        if self._cloud is not None and self._cloud.icloud_available():
+            row = QWidget()
+            hl = QHBoxLayout(row)
+            hl.setContentsMargins(0, 8, 0, 8)
+            name_lbl = QLabel(ICLOUD_LABEL)
+            name_lbl.setMinimumWidth(150)
+            status_lbl = QLabel()
+            status_lbl.setWordWrap(True)
+            btn = QPushButton()
+            btn.clicked.connect(self._on_icloud_click)
+            hl.addWidget(name_lbl)
+            hl.addWidget(status_lbl, 1)
+            hl.addWidget(btn)
+            lay.addWidget(row)
+            self._icloud_row = {'status': status_lbl, 'btn': btn}
+            self._refresh_icloud_row()
+
         close_btn = QPushButton('Close')
         close_btn.clicked.connect(self.accept)
         lay.addWidget(close_btn)
+
+    # ── iCloud Drive (local folder, no sign-in needed) ──────────────────────
+    def _refresh_icloud_row(self):
+        widgets = self._icloud_row
+        if self._cloud.icloud_enabled():
+            widgets['status'].setText('Connected')
+            widgets['btn'].setText('Disconnect')
+        else:
+            widgets['status'].setText('Not connected')
+            widgets['btn'].setText('Connect')
+
+    def _on_icloud_click(self):
+        enabling = not self._cloud.icloud_enabled()
+        self._cloud.set_icloud_enabled(enabling)
+        self._refresh_icloud_row()
+        if self._on_change:
+            self._on_change()
 
     # ── Row state ─────────────────────────────────────────────────────────────
     def _refresh_row(self, rtype):

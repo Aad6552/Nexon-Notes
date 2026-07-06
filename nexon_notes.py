@@ -5,6 +5,7 @@ import sys
 import os
 import fcntl
 import subprocess
+import threading
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSplitter, QListWidget,
@@ -22,6 +23,7 @@ from cloud_sync import CloudSync
 from cloud_accounts_dialog import CloudAccountsDialog
 from notes_db import DB, NOTES_DIR, DB_PATH
 from update_check import UpdateSignal, check_for_update_async
+from apple_notes_import import fetch_notes, safe_folder_name, AppleNotesImportError
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 LOGO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
@@ -221,6 +223,11 @@ class SyncSignal(QObject):
     finished = pyqtSignal()
 
 
+# ── Cross-thread signal for Apple Notes import results ────────────────────────
+class ImportSignal(QObject):
+    done = pyqtSignal(int, str)  # imported count, error message ('' on success)
+
+
 # ── Note list row widget ──────────────────────────────────────────────────────
 class NoteRow(QWidget):
     def __init__(self, note, parent=None):
@@ -293,6 +300,9 @@ class MainWindow(QMainWindow):
         self.cloud = CloudSync(DB_PATH)
         self._sync_signal = SyncSignal()
         self._sync_signal.finished.connect(self._on_cloud_sync_done)
+
+        self._import_signal = ImportSignal()
+        self._import_signal.done.connect(self._on_apple_notes_import_done)
 
         self._cloud_debounce_timer = QTimer(self)  # fires a bit after typing settles
         self._cloud_debounce_timer.setSingleShot(True)
@@ -373,6 +383,9 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
         act(file_menu, 'Sync to Cloud Now', self._trigger_cloud_sync, 'Ctrl+Shift+S')
         act(file_menu, 'Cloud Accounts…', self._open_cloud_accounts)
+        if sys.platform == 'darwin':
+            file_menu.addSeparator()
+            act(file_menu, 'Import from Apple Notes…', self._on_import_apple_notes)
         file_menu.addSeparator()
         act(file_menu, 'Quit', self.close, QKeySequence.StandardKey.Quit,
             role=QAction.MenuRole.QuitRole)
@@ -792,7 +805,7 @@ class MainWindow(QMainWindow):
 
     # ── Cloud backup ──────────────────────────────────────────────────────────
     def _open_cloud_accounts(self):
-        dlg = CloudAccountsDialog(self, on_change=self._trigger_cloud_sync)
+        dlg = CloudAccountsDialog(self, cloud_sync=self.cloud, on_change=self._trigger_cloud_sync)
         dlg.exec()
 
     def _trigger_cloud_sync(self):
@@ -807,6 +820,61 @@ class MainWindow(QMainWindow):
             mark = '✓' if info['ok'] else '✕'
             parts.append(f"☁ {label} {mark} {info['when']}")
         self.cloud_status_lbl.setText('\n'.join(parts))
+
+    # ── Apple Notes import ───────────────────────────────────────────────────
+    def _on_import_apple_notes(self):
+        reply = QMessageBox.question(
+            self, 'Import from Apple Notes',
+            'This copies every note from the Notes app into Nexon Notes, '
+            'matched into folders of the same name (new folders are created '
+            'as needed). Existing notes are left untouched.\n\n'
+            'macOS may ask you to authorize Nexon Notes to control Notes — '
+            'this can take a little while for a large note library. Continue?',
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        self._import_progress = QMessageBox(self)
+        self._import_progress.setWindowTitle('Import from Apple Notes')
+        self._import_progress.setText('Importing notes…')
+        self._import_progress.setStandardButtons(QMessageBox.StandardButton.NoButton)
+        self._import_progress.show()
+
+        def worker():
+            try:
+                notes = fetch_notes()
+                error = ''
+            except AppleNotesImportError as e:
+                notes = []
+                error = str(e)
+            count = self._apply_apple_notes_import(notes) if notes else 0
+            self._import_signal.done.emit(count, error)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _apply_apple_notes_import(self, notes):
+        existing_folders = {f['name'] for f in self.db.folders()}
+        count = 0
+        for note in notes:
+            folder = safe_folder_name(note['folder'])
+            if folder not in existing_folders:
+                self.db.new_folder(folder)
+                existing_folders.add(folder)
+            new_note = self.db.new_note(folder)
+            self.db.save_note(new_note['id'], note['content'])
+            count += 1
+        return count
+
+    def _on_apple_notes_import_done(self, count, error):
+        self._import_progress.close()
+        if error:
+            QMessageBox.warning(self, 'Import from Apple Notes', error)
+            return
+        self._fill_sidebar()
+        self._fill_notes(self.current_folder)
+        QMessageBox.information(
+            self, 'Import from Apple Notes', f'Imported {count} notes.'
+        )
 
     # ── App updates ───────────────────────────────────────────────────────────
     def _check_for_updates(self, manual=False):

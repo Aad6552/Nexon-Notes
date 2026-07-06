@@ -89,8 +89,8 @@ Click **☁ Manage Cloud Accounts...** in the sidebar to connect accounts.
 Backups run automatically in the background and upload:
 
 ```text
-notes.db
-notes/folders/
+nexon-notes/notes.db
+nexon-notes/folders/
 ```
 
 Offline or disconnected providers are skipped automatically.
