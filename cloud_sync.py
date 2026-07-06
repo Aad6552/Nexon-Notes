@@ -63,7 +63,7 @@ class CloudSync:
             export_dir = self._export_notes_by_folder()
             for name, label in self._discover_remotes():
                 ok = self._sync_one(name, export_dir)
-                self.status[label] = {'ok': ok, 'when': time.strftime('%H:%M')}
+                self.status[label] = {'ok': ok, 'when': time.strftime('%H:%M:%S')}
         finally:
             self._lock.release()
             if on_done:
