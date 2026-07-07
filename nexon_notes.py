@@ -423,6 +423,17 @@ class MainWindow(QMainWindow):
             self._menu_reveal_timer.timeout.connect(self._update_menu_bar_visibility)
             self._menu_reveal_timer.start()
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # QMainWindow's layout re-asserts the menu bar's visibility the first
+        # time the window is shown, which overrides the setVisible(False) done
+        # in _build_menus() and makes it flash briefly on launch. Re-hide it
+        # once this show event (and the layout activation it triggers) has
+        # finished processing.
+        mb = getattr(self, '_menu_bar', None)
+        if mb is not None:
+            QTimer.singleShot(0, lambda: mb.setVisible(False))
+
     def _update_menu_bar_visibility(self):
         mb = self._menu_bar
         if not self.isActiveWindow():
