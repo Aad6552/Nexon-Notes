@@ -9,6 +9,7 @@ set -e
 cd "$(dirname "$0")/.."
 
 command -v gh >/dev/null 2>&1 || { echo "gh (GitHub CLI) is required to publish releases." >&2; exit 1; }
+git rev-parse --is-inside-work-tree >/dev/null 2>&1 || { echo "Not inside a git repository." >&2; exit 1; }
 
 BUMP="${1:-patch}"
 VERSION_FILE="VERSION"
@@ -29,8 +30,19 @@ case "$BUMP" in
 esac
 
 new_version="${major}.${minor}.${patch}"
-echo "$new_version" > "$VERSION_FILE"
 
+# Roll back the VERSION bump on any failure before the commit lands, so a
+# broken release attempt never leaves VERSION pointing at a phantom version
+# that was never actually committed or released.
+committed=false
+rollback() {
+  if [ "$committed" = false ]; then
+    echo "$current" > "$VERSION_FILE"
+  fi
+}
+trap rollback EXIT
+
+echo "$new_version" > "$VERSION_FILE"
 git add -A
 
 if git diff --cached --quiet; then
@@ -39,10 +51,14 @@ if git diff --cached --quiet; then
 fi
 
 git commit -m "Release v${new_version}"
-git tag "v${new_version}"
+committed=true
 git push origin HEAD
-git push origin "v${new_version}"
 
-gh release create "v${new_version}" --title "v${new_version}" --generate-notes
+# Let `gh release create` create the tag itself, pointed at the commit we
+# just pushed, so a tag never exists on GitHub without an actual Release
+# attached to it (rather than tagging/pushing locally and hoping this step
+# also succeeds).
+gh release create "v${new_version}" --target "$(git rev-parse HEAD)" \
+  --title "v${new_version}" --generate-notes
 
 echo "Released v${new_version}"
