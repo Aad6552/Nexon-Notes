@@ -947,7 +947,6 @@ class MainWindow(QMainWindow):
 
     # ── App updates ───────────────────────────────────────────────────────────
     def _check_for_updates(self, manual=False):
-        self.statusBar().showMessage('Checking for updates…')
         if manual:
             # Triggered from the menu: report every outcome, not just updates.
             check_for_update_async(
